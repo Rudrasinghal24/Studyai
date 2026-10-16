@@ -19,11 +19,19 @@ import {
   Eye,
   CheckCircle2,
   XCircle,
-  X
+  X,
+  Share2,
+  Users,
+  PenTool,
+  Sparkles,
+  BookOpen,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import fallbackStudyBuddiesImg from './assets/images/study_buddies_3d_1792179642733.jpg';
 import { renderMarkdown, splitLessonSections, parseSelfTestQuestions } from './utils/lessonParser';
+import { ExportModal } from './components/ExportModal';
+import { ShareModal } from './components/ShareModal';
+import { FriendCodeModal } from './components/FriendCodeModal';
 
 interface ChatMessage {
   id: string;
@@ -91,9 +99,123 @@ export default function App() {
   const [revealedQuiz, setRevealedQuiz] = useState<Record<string, boolean>>({});
   const [quizScore, setQuizScore] = useState<Record<string, 'correct' | 'review'>>({});
 
+  // Export, Share, and Friend Code Modal States
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [activeExportLesson, setActiveExportLesson] = useState<{
+    markdown: string;
+    title: string;
+    notes?: string;
+  } | null>(null);
+
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [activeShareLesson, setActiveShareLesson] = useState<{
+    markdown: string;
+    title: string;
+    mode: string;
+    notes?: string;
+  } | null>(null);
+
+  const [friendCodeModalOpen, setFriendCodeModalOpen] = useState(false);
+  const [loadedBanner, setLoadedBanner] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const deriveTitle = (text: string) => {
+    const match = text.match(/^#+\s*(?:1[\.:\)]?\s*)?(?:Asli\s+Mudda|The\s+Big\s+Picture)?[^\n]*\n+([^\n]+)/i);
+    if (match && match[1]) {
+      return match[1].replace(/[#*`]/g, '').trim().slice(0, 60);
+    }
+    const firstLine = text.split('\n').find((l) => l.trim().length > 3) || 'Study Notes';
+    return firstLine.replace(/[#*`]/g, '').trim().slice(0, 60);
+  };
+
+  const handleOpenExport = (markdown: string) => {
+    setActiveExportLesson({
+      markdown,
+      title: deriveTitle(markdown),
+      notes: notesText,
+    });
+    setExportModalOpen(true);
+  };
+
+  const handleOpenShare = (markdown: string) => {
+    setActiveShareLesson({
+      markdown,
+      title: deriveTitle(markdown),
+      mode,
+      notes: notesText,
+    });
+    setShareModalOpen(true);
+  };
+
+  const handleLoadSharedLesson = (lesson: {
+    id: string;
+    title: string;
+    markdown: string;
+    notes?: string;
+    mode?: string;
+    authorName?: string;
+  }) => {
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `user-loaded-${Date.now()}`,
+        sender: 'user',
+        text: `Loaded friend's notes: "${lesson.title}" [Code: ${lesson.id}]`,
+        time: nowTime,
+        isMarkdown: false,
+      },
+      {
+        id: `bestie-loaded-${Date.now()}`,
+        sender: 'bestie',
+        text: lesson.markdown,
+        time: nowTime,
+        isMarkdown: true,
+      },
+    ]);
+
+    if (lesson.notes) {
+      setNotesText(lesson.notes);
+      setShowNotes(true);
+    }
+
+    if (lesson.mode === 'deep_dive' || lesson.mode === 'bestie_mode') {
+      setMode(lesson.mode as any);
+    }
+
+    setLoadedBanner(`✨ Loaded note "${lesson.title}" shared by ${lesson.authorName || 'Bestie'} (${lesson.id})`);
+    setTimeout(() => setLoadedBanner(null), 6000);
+
+    try {
+      confetti({ particleCount: 70, spread: 80, origin: { y: 0.7 } });
+    } catch {}
+
+    setTimeout(() => {
+      chatScrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 200);
+  };
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const shareCode = urlParams.get('share') || urlParams.get('code') || urlParams.get('id');
+    if (shareCode) {
+      const fetchDirect = async () => {
+        try {
+          const res = await fetch(`/api/share/${encodeURIComponent(shareCode.trim().toUpperCase())}`);
+          const data = await res.json();
+          if (data.success && data.lesson) {
+            handleLoadSharedLesson(data.lesson);
+          }
+        } catch (err) {
+          console.error('Auto-load share error:', err);
+        }
+      };
+      fetchDirect();
+    }
+  }, []);
 
   useEffect(() => {
     const handleDocumentClick = (e: MouseEvent) => {
@@ -536,39 +658,76 @@ export default function App() {
           </div>
         </div>
 
-        {/* 3. HEADER ROW: Left side StudyBestie pink-to-teal gradient, Right side toggle pill */}
-        <div className="w-full flex items-center justify-between mb-4 px-1">
-          {/* Left: StudyBestie Text Gradient Logo */}
-          <div className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gradient-logo font-sans select-none">
-            StudyBestie
+        {/* Banner when note is loaded from a friend */}
+        {loadedBanner && (
+          <div className="w-full mb-3 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-xs sm:text-sm font-bold shadow-md shadow-emerald-200 flex items-center justify-between animate-in slide-in-from-top-2 duration-200">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-200 shrink-0" />
+              <span>{loadedBanner}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLoadedBanner(null)}
+              className="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* 3. HEADER ROW: Left side StudyBestie pink-to-teal gradient, Right side Friend Code & toggle pill */}
+        <div className="w-full flex flex-wrap items-center justify-between gap-3 mb-4 px-1">
+          {/* Left: StudyBestie Text Gradient Logo & Tagline */}
+          <div>
+            <div className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gradient-logo font-sans select-none">
+              StudyBestie
+            </div>
+            <p className="text-[11px] font-semibold text-slate-400 mt-0.5 font-sans">
+              "Mai Samjha Dunga!" • AI Study Buddy & Peer Sync
+            </p>
           </div>
 
-          {/* Right: Pill-Shaped Toggle Switch */}
-          <div className="flex items-center bg-white/80 backdrop-blur-sm p-1 rounded-full border border-pink-200/60 shadow-xs">
+          {/* Right: Friend's Code Button + Pill-Shaped Toggle Switch */}
+          <div className="flex items-center gap-2">
+            {/* Friend's Code Button */}
             <button
               type="button"
-              onClick={() => setMode('deep_dive')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                mode === 'deep_dive'
-                  ? 'bg-white text-slate-800 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-600 bg-transparent'
-              }`}
+              onClick={() => setFriendCodeModalOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold bg-white/90 hover:bg-white text-teal-800 border border-teal-200/80 shadow-xs hover:shadow-sm transition-all cursor-pointer group"
+              title="Enter your friend's unique study code or open peer notes"
             >
-              <span>🔬</span>
-              <span>Deep Dive</span>
+              <Users className="w-3.5 h-3.5 text-[#20B2AA] group-hover:scale-110 transition-transform" />
+              <span>Friend's Code</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             </button>
-            <button
-              type="button"
-              onClick={() => setMode('bestie_mode')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                mode === 'bestie_mode'
-                  ? 'bg-[#FF4D94] text-white shadow-md shadow-pink-300/60'
-                  : 'text-slate-400 hover:text-slate-600 bg-transparent'
-              }`}
-            >
-              <span>🧸</span>
-              <span>Bestie Mode</span>
-            </button>
+
+            {/* Pill-Shaped Toggle Switch */}
+            <div className="flex items-center bg-white/80 backdrop-blur-sm p-1 rounded-full border border-pink-200/60 shadow-xs">
+              <button
+                type="button"
+                onClick={() => setMode('deep_dive')}
+                className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                  mode === 'deep_dive'
+                    ? 'bg-white text-slate-800 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-600 bg-transparent'
+                }`}
+              >
+                <span>🔬</span>
+                <span>Deep Dive</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('bestie_mode')}
+                className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                  mode === 'bestie_mode'
+                    ? 'bg-[#FF4D94] text-white shadow-md shadow-pink-300/60'
+                    : 'text-slate-400 hover:text-slate-600 bg-transparent'
+                }`}
+              >
+                <span>🧸</span>
+                <span>Bestie Mode</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -808,26 +967,41 @@ export default function App() {
                             )}
                           </button>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                            {/* Share with Friend Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenShare(m.text)}
+                              className="flex items-center gap-1 text-[11px] font-bold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200/80 px-2.5 py-1 rounded-full transition-all cursor-pointer shadow-2xs"
+                              title="Share unique ID with your friend"
+                            >
+                              <Share2 className="w-3 h-3 text-[#20B2AA]" />
+                              <span>Share ID</span>
+                            </button>
+
+                            {/* Export / Handwritten Notes Download Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenExport(m.text)}
+                              className="flex items-center gap-1 text-[11px] font-bold text-pink-700 bg-pink-100/70 hover:bg-pink-200/80 border border-pink-200 px-2.5 py-1 rounded-full transition-all cursor-pointer shadow-2xs"
+                              title="Download as PDF, JPG, or Handwritten Notebook"
+                            >
+                              <PenTool className="w-3 h-3 text-[#FF4D94]" />
+                              <span>PDF · JPG · Notes</span>
+                            </button>
+
+                            {/* Copy button */}
                             <button
                               type="button"
                               onClick={() => handleCopy(m.id, m.text)}
-                              className="text-slate-500 hover:text-slate-800 p-1"
-                              title="Copy"
+                              className="text-slate-500 hover:text-slate-800 p-1 rounded-md hover:bg-white/60 transition-colors cursor-pointer"
+                              title="Copy raw markdown text"
                             >
                               {copiedId === m.id ? (
                                 <Check className="w-4 h-4 text-emerald-600" />
                               ) : (
                                 <Copy className="w-4 h-4" />
                               )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDownload(m.text)}
-                              className="text-slate-500 hover:text-slate-800 p-1"
-                              title="Download"
-                            >
-                              <Download className="w-4 h-4" />
                             </button>
                           </div>
                         </div>
@@ -960,7 +1134,42 @@ export default function App() {
             </button>
           </form>
         </div>
+
+        {/* 6. MODALS: Export (PDF/JPG/Handwritten), Share (Unique ID), Friend Code Sync */}
+        {activeExportLesson && (
+          <ExportModal
+            isOpen={exportModalOpen}
+            onClose={() => {
+              setExportModalOpen(false);
+              setActiveExportLesson(null);
+            }}
+            markdown={activeExportLesson.markdown}
+            title={activeExportLesson.title}
+            notes={activeExportLesson.notes}
+          />
+        )}
+
+        {activeShareLesson && (
+          <ShareModal
+            isOpen={shareModalOpen}
+            onClose={() => {
+              setShareModalOpen(false);
+              setActiveShareLesson(null);
+            }}
+            markdown={activeShareLesson.markdown}
+            title={activeShareLesson.title}
+            mode={activeShareLesson.mode}
+            notes={activeShareLesson.notes}
+          />
+        )}
+
+        <FriendCodeModal
+          isOpen={friendCodeModalOpen}
+          onClose={() => setFriendCodeModalOpen(false)}
+          onLoadLesson={handleLoadSharedLesson}
+        />
       </div>
     </div>
   );
 }
+

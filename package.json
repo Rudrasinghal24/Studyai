@@ -23,6 +23,8 @@
     "canvas-confetti": "^1.9.4",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
     "katex": "^0.19.0",
     "lucide-react": "^0.546.0",
     "marked": "^18.1.1",
