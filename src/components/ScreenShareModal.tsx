@@ -11,6 +11,7 @@ import {
   BookOpen,
   ArrowRightLeft,
   Tv,
+  Edit2,
 } from 'lucide-react';
 import { PeerScreenState } from '../types';
 
@@ -229,11 +230,53 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({
           </div>
         </div>
 
+        {/* Co-Study Identity: Change Bestie Name & Optional Photo when connecting */}
+        <div className="mb-5 p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-10 h-10 rounded-xl overflow-hidden bg-gradient-to-tr from-[#FF4D94] to-[#FF80B5] text-white flex items-center justify-center font-bold text-sm shadow-xs border-2 border-white shrink-0">
+              {myAvatar && (myAvatar.startsWith('data:') || myAvatar.startsWith('http')) ? (
+                <img src={myAvatar} alt="Profile" className="w-full h-full object-cover" />
+              ) : myAvatar ? (
+                <span className="text-lg select-none">{myAvatar}</span>
+              ) : (
+                <span>{myUsername.charAt(0).toUpperCase() || '✨'}</span>
+              )}
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Connecting & Co-Studying As:
+              </span>
+              <span className="text-xs sm:text-sm font-extrabold text-slate-800 truncate block">
+                {myUsername}
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenEditProfile}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-pink-50 text-pink-600 border border-pink-200 text-xs font-bold transition-all cursor-pointer shadow-2xs hover:border-pink-300 shrink-0"
+            title="Change your Bestie name and optional profile photo"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+            <span>Change Name / Photo</span>
+          </button>
+        </div>
+
         {/* Section 2: Enter Friend's ID */}
         <div className="mb-5">
-          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-            Enter Friend's ID to Watch Their Screen
-          </label>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Enter Friend's ID to Watch Their Screen
+            </label>
+            <button
+              type="button"
+              onClick={onOpenEditProfile}
+              className="text-[11px] text-pink-600 hover:text-pink-800 font-bold hover:underline cursor-pointer"
+            >
+              Change Name/Photo ✏️
+            </button>
+          </div>
           <form
             onSubmit={(e) => {
               e.preventDefault();

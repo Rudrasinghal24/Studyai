@@ -37,6 +37,9 @@ import { FriendCodeModal } from './components/FriendCodeModal';
 import { LiveScreenBar } from './components/LiveScreenBar';
 import { ScreenShareModal } from './components/ScreenShareModal';
 import { FriendScreenView } from './components/FriendScreenView';
+import { EditProfileModal } from './components/EditProfileModal';
+import { StudyStreakModal } from './components/StudyStreakModal';
+import { getStudyStreak, recordStudyActivity, StudyStreakData } from './utils/streakManager';
 import { PeerScreenState } from './types';
 
 interface DecodedVideoInfo {
@@ -150,6 +153,14 @@ export default function App() {
     return (typeof window !== 'undefined' && localStorage.getItem('studybestie_username')) || 'Study Bestie ✨';
   });
 
+  const [myAvatar, setMyAvatar] = useState<string>(() => {
+    return (typeof window !== 'undefined' && localStorage.getItem('studybestie_avatar')) || '✨';
+  });
+
+  const [editProfileModalOpen, setEditProfileModalOpen] = useState(false);
+  const [studyStreakModalOpen, setStudyStreakModalOpen] = useState(false);
+  const [streakData, setStreakData] = useState<StudyStreakData>(() => getStudyStreak());
+
   const [activeScreenMode, setActiveScreenMode] = useState<'my_screen' | 'friend_screen'>('my_screen');
   const [friendScreen, setFriendScreen] = useState<PeerScreenState | null>(null);
   const [isPeerSyncing, setIsPeerSyncing] = useState(false);
@@ -174,6 +185,17 @@ export default function App() {
   const handleUpdateUsername = (name: string) => {
     setMyUsername(name);
     if (typeof window !== 'undefined') localStorage.setItem('studybestie_username', name);
+  };
+
+  const handleSaveProfile = (name: string, avatarUrl: string) => {
+    setMyUsername(name);
+    setMyAvatar(avatarUrl);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('studybestie_username', name);
+      localStorage.setItem('studybestie_avatar', avatarUrl);
+    }
+    setLoadedBanner(`✨ Bestie profile updated! Studying as "${name}"`);
+    setTimeout(() => setLoadedBanner(null), 3500);
   };
 
   const handleSwitchScreen = async (targetMode?: 'my_screen' | 'friend_screen') => {
@@ -226,6 +248,10 @@ export default function App() {
             newPresenterId: data.screen.peerId,
           }),
         }).catch(() => {});
+
+        // Record streak for co-study session
+        const streakRes = recordStudyActivity(false);
+        setStreakData(streakRes.data);
 
         try {
           confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
@@ -398,6 +424,7 @@ export default function App() {
           body: JSON.stringify({
             peerId: myPeerId,
             username: myUsername,
+            avatarUrl: myAvatar,
             activeLessonTitle: title,
             markdown: currentMarkdown,
             notes: notesText,
@@ -675,6 +702,14 @@ export default function App() {
         },
       ]);
 
+      // Record study streak progress
+      const streakRes = recordStudyActivity(true);
+      setStreakData(streakRes.data);
+      if (streakRes.isNewDay || streakRes.milestoneReached) {
+        setLoadedBanner(`🔥 Study Streak: ${streakRes.data.currentStreak} Day${streakRes.data.currentStreak > 1 ? 's' : ''}! Bestie is super proud of you! ✨`);
+        setTimeout(() => setLoadedBanner(null), 5000);
+      }
+
       setYoutubeUrl('');
       setDecodedVideo(null);
       setUploadedFiles([]);
@@ -876,6 +911,8 @@ export default function App() {
   const handleMarkQuiz = (id: string, score: 'correct' | 'review') => {
     setQuizScore((prev) => ({ ...prev, [id]: score }));
     if (score === 'correct') {
+      const streakRes = recordStudyActivity(false);
+      setStreakData(streakRes.data);
       try {
         confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 } });
       } catch {}
@@ -894,7 +931,10 @@ export default function App() {
         <LiveScreenBar
           myPeerId={myPeerId}
           myUsername={myUsername}
-          onUpdateUsername={handleUpdateUsername}
+          myAvatar={myAvatar}
+          onOpenEditProfile={() => setEditProfileModalOpen(true)}
+          streakCount={streakData.currentStreak}
+          onOpenStreakModal={() => setStudyStreakModalOpen(true)}
           friendScreen={friendScreen}
           activeScreenMode={activeScreenMode}
           activePresenterId={friendScreen?.activePresenterId}
@@ -1602,10 +1642,28 @@ export default function App() {
       onClose={() => setScreenShareModalOpen(false)}
       myPeerId={myPeerId}
       myUsername={myUsername}
+      myAvatar={myAvatar}
+      onOpenEditProfile={() => {
+        setEditProfileModalOpen(true);
+      }}
       onConnectPeer={handleConnectFriendScreen}
       activeFriendScreen={friendScreen}
       onSwitchScreen={() => handleSwitchScreen()}
       onDisconnect={handleDisconnectFriend}
+    />
+
+    <EditProfileModal
+      isOpen={editProfileModalOpen}
+      onClose={() => setEditProfileModalOpen(false)}
+      currentUsername={myUsername}
+      currentAvatar={myAvatar}
+      onSaveProfile={handleSaveProfile}
+    />
+
+    <StudyStreakModal
+      isOpen={studyStreakModalOpen}
+      onClose={() => setStudyStreakModalOpen(false)}
+      streakData={streakData}
     />
   </div>
 </div>

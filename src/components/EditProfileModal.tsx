@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { X, User, Camera, Image as ImageIcon, Sparkles, Check, Upload } from 'lucide-react';
 
 interface EditProfileModalProps {
@@ -32,6 +32,13 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const [customUrl, setCustomUrl] = useState('');
   const [showUrlInput, setShowUrlInput] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setUsername(currentUsername);
+      setAvatar(currentAvatar);
+    }
+  }, [isOpen, currentUsername, currentAvatar]);
 
   if (!isOpen) return null;
 
