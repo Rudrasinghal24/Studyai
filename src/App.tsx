@@ -25,6 +25,8 @@ import {
   PenTool,
   Sparkles,
   BookOpen,
+  Radio,
+  Tv,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import fallbackStudyBuddiesImg from './assets/images/study_buddies_3d_1792179642733.jpg';
@@ -32,6 +34,18 @@ import { renderMarkdown, splitLessonSections, parseSelfTestQuestions } from './u
 import { ExportModal } from './components/ExportModal';
 import { ShareModal } from './components/ShareModal';
 import { FriendCodeModal } from './components/FriendCodeModal';
+import { LiveScreenBar } from './components/LiveScreenBar';
+import { ScreenShareModal } from './components/ScreenShareModal';
+import { FriendScreenView } from './components/FriendScreenView';
+import { PeerScreenState } from './types';
+
+interface DecodedVideoInfo {
+  videoId: string;
+  canonicalUrl: string;
+  title: string;
+  author: string;
+  thumbnailUrl: string;
+}
 
 interface ChatMessage {
   id: string;
@@ -39,6 +53,7 @@ interface ChatMessage {
   text: string;
   time: string;
   isMarkdown?: boolean;
+  video?: DecodedVideoInfo;
 }
 
 const BOY_QUOTES = [
@@ -59,6 +74,10 @@ const GIRL_QUOTES = [
 
 export default function App() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [decodedVideo, setDecodedVideo] = useState<DecodedVideoInfo | null>(null);
+  const [isDecodingYt, setIsDecodingYt] = useState(false);
+  const [decodeError, setDecodeError] = useState<string | null>(null);
+
   const [mode, setMode] = useState<'deep_dive' | 'bestie_mode'>('bestie_mode');
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -115,6 +134,27 @@ export default function App() {
     notes?: string;
   } | null>(null);
 
+  // Live Peer Screen Share & Switching States
+  const [myPeerId] = useState<string>(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('studybestie_peer_id') : null;
+    if (saved) return saved;
+    const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    let code = '';
+    for (let i = 0; i < 5; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+    const newId = `BESTIE-${code}`;
+    if (typeof window !== 'undefined') localStorage.setItem('studybestie_peer_id', newId);
+    return newId;
+  });
+
+  const [myUsername, setMyUsername] = useState<string>(() => {
+    return (typeof window !== 'undefined' && localStorage.getItem('studybestie_username')) || 'Study Bestie ✨';
+  });
+
+  const [activeScreenMode, setActiveScreenMode] = useState<'my_screen' | 'friend_screen'>('my_screen');
+  const [friendScreen, setFriendScreen] = useState<PeerScreenState | null>(null);
+  const [isPeerSyncing, setIsPeerSyncing] = useState(false);
+  const [screenShareModalOpen, setScreenShareModalOpen] = useState(false);
+
   const [friendCodeModalOpen, setFriendCodeModalOpen] = useState(false);
   const [loadedBanner, setLoadedBanner] = useState<string | null>(null);
 
@@ -129,6 +169,127 @@ export default function App() {
     }
     const firstLine = text.split('\n').find((l) => l.trim().length > 3) || 'Study Notes';
     return firstLine.replace(/[#*`]/g, '').trim().slice(0, 60);
+  };
+
+  const handleUpdateUsername = (name: string) => {
+    setMyUsername(name);
+    if (typeof window !== 'undefined') localStorage.setItem('studybestie_username', name);
+  };
+
+  const handleSwitchScreen = async (targetMode?: 'my_screen' | 'friend_screen') => {
+    if (!friendScreen) return;
+    setIsPeerSyncing(true);
+    try {
+      const nextMode = targetMode || (activeScreenMode === 'friend_screen' ? 'my_screen' : 'friend_screen');
+      const newPresenter = nextMode === 'my_screen' ? myPeerId : friendScreen.peerId;
+
+      await fetch('/api/peer/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requesterId: myPeerId,
+          targetId: friendScreen.peerId,
+          newPresenterId: newPresenter,
+        }),
+      });
+
+      setActiveScreenMode(nextMode);
+      if (nextMode === 'my_screen') {
+        setLoadedBanner(`Switched: You are now broadcasting your study screen to ${friendScreen.username}!`);
+      } else {
+        setLoadedBanner(`Switched: Now watching ${friendScreen.username}'s study screen!`);
+      }
+      setTimeout(() => setLoadedBanner(null), 4000);
+    } catch (err) {
+      console.error('Error switching screen:', err);
+    } finally {
+      setIsPeerSyncing(false);
+    }
+  };
+
+  const handleConnectFriendScreen = async (friendId: string): Promise<boolean> => {
+    setIsPeerSyncing(true);
+    try {
+      const res = await fetch(`/api/peer/${encodeURIComponent(friendId.trim())}`);
+      const data = await res.json();
+      if (data.success && data.screen) {
+        setFriendScreen(data.screen);
+        setActiveScreenMode('friend_screen');
+
+        // Pair with friend on server and make friend the initial active presenter
+        await fetch('/api/peer/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requesterId: myPeerId,
+            targetId: data.screen.peerId,
+            newPresenterId: data.screen.peerId,
+          }),
+        }).catch(() => {});
+
+        try {
+          confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
+        } catch {}
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    } finally {
+      setIsPeerSyncing(false);
+    }
+  };
+
+  const handleRefreshFriendScreen = async () => {
+    if (!friendScreen) return;
+    setIsPeerSyncing(true);
+    try {
+      const res = await fetch(`/api/peer/${encodeURIComponent(friendScreen.peerId)}`);
+      const data = await res.json();
+      if (data.success && data.screen) {
+        setFriendScreen(data.screen);
+      }
+    } catch {}
+    finally {
+      setIsPeerSyncing(false);
+    }
+  };
+
+  const handleDisconnectFriend = () => {
+    setFriendScreen(null);
+    setActiveScreenMode('my_screen');
+    setLoadedBanner('Exited screen share.');
+    setTimeout(() => setLoadedBanner(null), 3000);
+  };
+
+  const handleImportFriendNotes = () => {
+    if (!friendScreen) return;
+    if (friendScreen.markdown) {
+      const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `imported-${Date.now()}`,
+          sender: 'user',
+          text: `Cloned friend's study screen: "${friendScreen.activeLessonTitle}"`,
+          time: nowTime,
+        },
+        {
+          id: `bestie-imported-${Date.now()}`,
+          sender: 'bestie',
+          text: friendScreen.markdown,
+          time: nowTime,
+          isMarkdown: true,
+        },
+      ]);
+    }
+    if (friendScreen.notes) {
+      setNotesText(friendScreen.notes);
+      setShowNotes(true);
+    }
+    setActiveScreenMode('my_screen');
+    setLoadedBanner(`Cloned ${friendScreen.username}'s notes to your study space!`);
+    setTimeout(() => setLoadedBanner(null), 4000);
   };
 
   const handleOpenExport = (markdown: string) => {
@@ -215,7 +376,122 @@ export default function App() {
       };
       fetchDirect();
     }
+
+    // Direct Screen Share connect from URL query
+    const peerParam = urlParams.get('screenshare') || urlParams.get('peer') || urlParams.get('watch');
+    if (peerParam) {
+      handleConnectFriendScreen(peerParam);
+    }
   }, []);
+
+  // Periodic broadcast of our study screen state
+  useEffect(() => {
+    const broadcastState = async () => {
+      try {
+        const latestLesson = [...messages].reverse().find((m) => m.sender === 'bestie' && m.isMarkdown);
+        const currentMarkdown = latestLesson?.text || '';
+        const title = currentMarkdown ? deriveTitle(currentMarkdown) : (decodedVideo?.title || 'Live Study Session');
+
+        await fetch('/api/peer/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            peerId: myPeerId,
+            username: myUsername,
+            activeLessonTitle: title,
+            markdown: currentMarkdown,
+            notes: notesText,
+            mode,
+            video: decodedVideo,
+            messages,
+            pairedPeerId: friendScreen?.peerId,
+            activePresenterId: friendScreen
+              ? (activeScreenMode === 'my_screen' ? myPeerId : friendScreen.peerId)
+              : myPeerId,
+          }),
+        });
+      } catch {}
+    };
+
+    broadcastState();
+    const timer = setInterval(broadcastState, 2800);
+    return () => clearInterval(timer);
+  }, [myPeerId, myUsername, messages, notesText, mode, decodedVideo, friendScreen?.peerId, activeScreenMode]);
+
+  // Periodic poll of friend's screen when connected
+  useEffect(() => {
+    if (!friendScreen) return;
+
+    const pollFriend = async () => {
+      try {
+        const res = await fetch(`/api/peer/${encodeURIComponent(friendScreen.peerId)}`);
+        const data = await res.json();
+        if (data.success && data.screen) {
+          setFriendScreen(data.screen);
+
+          // Detect if friend switched the presenter!
+          if (data.screen.activePresenterId) {
+            if (data.screen.activePresenterId === myPeerId && activeScreenMode === 'friend_screen') {
+              setActiveScreenMode('my_screen');
+              setLoadedBanner(`Screen switched! You are now presenting to ${data.screen.username}`);
+              setTimeout(() => setLoadedBanner(null), 4000);
+            } else if (data.screen.activePresenterId === friendScreen.peerId && activeScreenMode === 'my_screen') {
+              setActiveScreenMode('friend_screen');
+              setLoadedBanner(`Screen switched! Now watching ${data.screen.username}'s study screen`);
+              setTimeout(() => setLoadedBanner(null), 4000);
+            }
+          }
+        }
+      } catch {}
+    };
+
+    const timer = setInterval(pollFriend, 1800);
+    return () => clearInterval(timer);
+  }, [friendScreen?.peerId, activeScreenMode, myPeerId]);
+
+  // Automatic YouTube URL live decoding with debounce
+  useEffect(() => {
+    const trimmed = youtubeUrl.trim();
+    if (!trimmed) {
+      setDecodedVideo(null);
+      setDecodeError(null);
+      setIsDecodingYt(false);
+      return;
+    }
+
+    const looksLikeYt =
+      trimmed.includes('youtube.com') ||
+      trimmed.includes('youtu.be') ||
+      /^[a-zA-Z0-9_\-]{11}$/.test(trimmed);
+
+    if (!looksLikeYt) {
+      setDecodedVideo(null);
+      setDecodeError(null);
+      setIsDecodingYt(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsDecodingYt(true);
+      setDecodeError(null);
+      try {
+        const res = await fetch(`/api/decode-yt?url=${encodeURIComponent(trimmed)}`);
+        const data = await res.json();
+        if (data.success && data.video) {
+          setDecodedVideo(data.video);
+          setErrorMsg(null);
+        } else {
+          setDecodeError(data.error || 'Could not decode this YouTube link');
+        }
+      } catch (err: any) {
+        setDecodeError('Failed to fetch video details');
+      } finally {
+        setIsDecodingYt(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [youtubeUrl]);
 
   useEffect(() => {
     const handleDocumentClick = (e: MouseEvent) => {
@@ -308,7 +584,11 @@ export default function App() {
     setIsAnalyzing(true);
 
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const userPrompt = query || `Attached files: ${uploadedFiles.map((f) => f.name).join(', ')}`;
+    const userPrompt = decodedVideo
+      ? `🎬 ${decodedVideo.title} • ${decodedVideo.author}`
+      : query || `Attached files: ${uploadedFiles.map((f) => f.name).join(', ')}`;
+
+    const currentDecodedVideo = decodedVideo;
 
     setMessages((prev) => [
       ...prev,
@@ -318,6 +598,7 @@ export default function App() {
         text: userPrompt,
         time: nowTime,
         isMarkdown: false,
+        video: currentDecodedVideo || undefined,
       },
     ]);
 
@@ -372,10 +653,12 @@ export default function App() {
           text: data.lessonMarkdown || 'Tension mat lo, here is your breakdown!',
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           isMarkdown: true,
+          video: data.video || currentDecodedVideo || undefined,
         },
       ]);
 
       setYoutubeUrl('');
+      setDecodedVideo(null);
       setUploadedFiles([]);
     } catch (err: any) {
       console.error('Error in educate API:', err);
@@ -589,8 +872,44 @@ export default function App() {
           isExpanded ? 'max-w-4xl' : 'max-w-3xl'
         }`}
       >
-        {/* 2. INTERACTIVE STUDY BUDDIES (Top Section) */}
-        <div className="relative flex flex-col items-center justify-center mb-6 w-full">
+        {/* Live Bestie ID & Screen Share Bar (Always visible at top) */}
+        <LiveScreenBar
+          myPeerId={myPeerId}
+          myUsername={myUsername}
+          onUpdateUsername={handleUpdateUsername}
+          friendScreen={friendScreen}
+          activeScreenMode={activeScreenMode}
+          activePresenterId={friendScreen?.activePresenterId}
+          isPeerSyncing={isPeerSyncing}
+          onOpenScreenShareModal={() => setScreenShareModalOpen(true)}
+          onSwitchScreen={() => handleSwitchScreen()}
+          onDisconnect={handleDisconnectFriend}
+          onRefresh={handleRefreshFriendScreen}
+        />
+
+        {/* If Watching Friend's Screen: Render Mirrored Study View */}
+        {activeScreenMode === 'friend_screen' && friendScreen ? (
+          <FriendScreenView
+            friendScreen={friendScreen}
+            onSwitchToMyScreen={() => handleSwitchScreen('my_screen')}
+            onCloneNotes={handleImportFriendNotes}
+            onDisconnect={handleDisconnectFriend}
+            onOpenExport={handleOpenExport}
+            onPlayVoice={handlePlayVoice}
+            isPlayingAudio={isPlayingAudio}
+            fontSize={fontSize}
+            onSendFollowUpToBestie={(query) => {
+              setFollowUp(query);
+              setTimeout(() => {
+                handleSendFollowUp(undefined, query);
+                setActiveScreenMode('my_screen');
+              }, 100);
+            }}
+          />
+        ) : (
+          <>
+            {/* 2. INTERACTIVE STUDY BUDDIES (Top Section) */}
+            <div className="relative flex flex-col items-center justify-center mb-6 w-full">
           {/* Floating White Pill Above the Image */}
           <div className="flex flex-col items-center gap-1 mb-2 z-20">
             <span className="px-5 py-1 rounded-full bg-white shadow-xs border border-pink-100 text-[11px] font-mono-code font-bold tracking-widest text-slate-700 uppercase">
@@ -734,10 +1053,30 @@ export default function App() {
         {/* 3. MAIN INPUT CARD: Large white container, rounded-3xl, subtle pink shadow */}
         <div className="w-full bg-white rounded-3xl p-6 sm:p-7 shadow-xl shadow-pink-100/50 mb-3 relative border border-pink-50">
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            {/* a) Label: YOUTUBE VIDEO / PLAYLIST in teal, uppercase, small */}
-            <label className="text-xs font-mono-code font-bold uppercase tracking-wider text-[#20B2AA]">
-              YOUTUBE VIDEO / PLAYLIST
-            </label>
+            {/* a) Label: YOUTUBE VIDEO / PLAYLIST with Quick Test buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-1">
+              <label className="text-xs font-mono-code font-bold uppercase tracking-wider text-[#20B2AA]">
+                YOUTUBE VIDEO / TOPIC LINK
+              </label>
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-semibold">
+                <span className="text-slate-400">Try sample:</span>
+                <button
+                  type="button"
+                  onClick={() => setYoutubeUrl('https://www.youtube.com/watch?v=aircAruvnKk')}
+                  className="text-pink-600 hover:text-pink-800 hover:underline cursor-pointer"
+                >
+                  Neural Networks
+                </button>
+                <span>•</span>
+                <button
+                  type="button"
+                  onClick={() => setYoutubeUrl('https://www.youtube.com/watch?v=IHZwWFHWa-w')}
+                  className="text-teal-600 hover:text-teal-800 hover:underline cursor-pointer"
+                >
+                  Gradient Descent
+                </button>
+              </div>
+            </div>
 
             {/* b) Input: Rounded-2xl bordered text field for YouTube URL */}
             <div className="relative">
@@ -746,19 +1085,87 @@ export default function App() {
                 value={youtubeUrl}
                 onChange={(e) => setYoutubeUrl(e.target.value)}
                 disabled={isAnalyzing}
-                placeholder="https://youtube.com/watch?v=..."
+                placeholder="https://youtube.com/watch?v=... or youtu.be/..."
                 className="w-full px-5 py-3.5 text-sm sm:text-base text-slate-800 placeholder-slate-400 bg-white rounded-2xl border border-slate-200 focus:border-[#20B2AA] focus:ring-2 focus:ring-[#20B2AA]/20 outline-none transition-all"
               />
               {youtubeUrl && (
                 <button
                   type="button"
-                  onClick={() => setYoutubeUrl('')}
+                  onClick={() => {
+                    setYoutubeUrl('');
+                    setDecodedVideo(null);
+                  }}
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               )}
             </div>
+
+            {/* Live Decoding Status */}
+            {isDecodingYt && (
+              <div className="flex items-center gap-2 p-2.5 bg-pink-50/80 border border-pink-200/80 rounded-xl text-xs font-semibold text-pink-700 animate-in fade-in">
+                <div className="w-3.5 h-3.5 border-2 border-pink-500 border-t-transparent rounded-full animate-spin shrink-0" />
+                <span>Bestie is decoding your YouTube video & extracting lecture topics...</span>
+              </div>
+            )}
+
+            {/* Decoded Video Preview Card */}
+            {decodedVideo && !isDecodingYt && (
+              <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-pink-50/90 via-white to-teal-50/90 rounded-2xl border-2 border-pink-200 shadow-sm animate-in fade-in slide-in-from-top-1">
+                <div className="relative w-24 h-16 sm:w-28 sm:h-18 rounded-xl overflow-hidden shadow-xs bg-slate-900 shrink-0">
+                  <img
+                    src={decodedVideo.thumbnailUrl}
+                    alt={decodedVideo.title}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = `https://i.ytimg.com/vi/${decodedVideo.videoId}/hqdefault.jpg`;
+                    }}
+                  />
+                  <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
+                    <div className="w-6 h-6 rounded-full bg-rose-600 text-white flex items-center justify-center text-[10px] shadow-sm">
+                      ▶
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      ✓ Decoded Link
+                    </span>
+                    <span className="text-[11px] font-semibold text-slate-500 truncate">
+                      {decodedVideo.author}
+                    </span>
+                  </div>
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                    {decodedVideo.title}
+                  </h4>
+                  <p className="text-[11px] text-[#FF4D94] font-medium mt-0.5">
+                    Ready for Study Bestie Feynman breakdown! 🚀
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setYoutubeUrl('');
+                    setDecodedVideo(null);
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-rose-500 rounded-full hover:bg-white/80 transition-colors cursor-pointer"
+                  title="Remove video"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {decodeError && !isDecodingYt && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center justify-between">
+                <span>⚠️ {decodeError}</span>
+                <span className="text-[11px] text-rose-500">Check the URL or attach notes below</span>
+              </div>
+            )}
 
             {/* c) Upload Zone: Dashed grey border, rounded-2xl, 📁, text and subtext */}
             <div

@@ -10,7 +10,11 @@ import {
   Sparkles,
   BookOpen,
 } from 'lucide-react';
-import { downloadAsJpg, downloadAsPdf } from '../utils/exporter';
+import {
+  downloadContinuousJpg,
+  downloadMultiPageJpgZip,
+  downloadAsPdf,
+} from '../utils/exporter';
 import { renderMarkdown } from '../utils/lessonParser';
 
 interface ExportModalProps {
@@ -32,6 +36,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [paperType, setPaperType] = useState<'lined' | 'grid' | 'cream'>('lined');
   const [inkColor, setInkColor] = useState<'blue' | 'black' | 'pink'>('blue');
   const [isExporting, setIsExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [copiedMd, setCopiedMd] = useState(false);
 
   const previewRef = useRef<HTMLDivElement>(null);
@@ -45,14 +51,37 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     year: 'numeric',
   });
 
-  const handleDownloadJpg = async () => {
+  const handleDownloadAllPagesZip = async () => {
     if (!previewRef.current) return;
     setIsExporting(true);
+    setExportError(null);
+    setExportStatus('Rendering all pages and creating ZIP package...');
     try {
-      const filename = `StudyBestie_${styleMode === 'handwritten' ? 'Handwritten_' : ''}${cleanTitle.replace(/\s+/g, '_')}.jpg`;
-      await downloadAsJpg(previewRef.current, filename);
-    } catch (err) {
-      console.error('Failed to export JPG:', err);
+      const baseFilename = `StudyBestie_${styleMode === 'handwritten' ? 'Handwritten_' : ''}${cleanTitle.replace(/\s+/g, '_')}`;
+      const res = await downloadMultiPageJpgZip(previewRef.current, baseFilename);
+      setExportStatus(`Downloaded all ${res.totalPages} pages in ZIP package! ✓`);
+      setTimeout(() => setExportStatus(null), 4000);
+    } catch (err: any) {
+      console.error('Failed to export multi-page ZIP:', err);
+      setExportError(err?.message || 'Failed to export pages. You can also download Continuous JPG or use Print.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleDownloadContinuousJpg = async () => {
+    if (!previewRef.current) return;
+    setIsExporting(true);
+    setExportError(null);
+    setExportStatus('Rendering full continuous master JPG sheet...');
+    try {
+      const filename = `StudyBestie_${styleMode === 'handwritten' ? 'Handwritten_' : ''}${cleanTitle.replace(/\s+/g, '_')}_Full.jpg`;
+      await downloadContinuousJpg(previewRef.current, filename);
+      setExportStatus('Full continuous long sheet downloaded as JPG! ✓');
+      setTimeout(() => setExportStatus(null), 4000);
+    } catch (err: any) {
+      console.error('Failed to export continuous JPG:', err);
+      setExportError(err?.message || 'Failed to export JPG.');
     } finally {
       setIsExporting(false);
     }
@@ -61,11 +90,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const handleDownloadPdf = async () => {
     if (!previewRef.current) return;
     setIsExporting(true);
+    setExportError(null);
+    setExportStatus('Compiling complete multi-page A4 PDF document...');
     try {
       const filename = `StudyBestie_${styleMode === 'handwritten' ? 'Handwritten_' : ''}${cleanTitle.replace(/\s+/g, '_')}.pdf`;
-      await downloadAsPdf(previewRef.current, filename);
-    } catch (err) {
+      const res = await downloadAsPdf(previewRef.current, filename);
+      setExportStatus(`Complete ${res.totalPages}-page PDF downloaded! ✓`);
+      setTimeout(() => setExportStatus(null), 4000);
+    } catch (err: any) {
       console.error('Failed to export PDF:', err);
+      setExportError(err?.message || 'Failed to generate PDF. You can also use the "Print" button to save as PDF.');
     } finally {
       setIsExporting(false);
     }
@@ -326,66 +360,102 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         </div>
 
         {/* Modal Action Footer */}
-        <div className="px-6 py-4 bg-white border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs text-slate-500 flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5 text-pink-500" />
-            <span>2x Ultra-crisp vector export ready for mobile & print</span>
-          </div>
+        <div className="px-6 py-4 bg-white border-t border-slate-100 flex flex-col gap-2.5">
+          {exportError && (
+            <div className="text-xs text-rose-600 bg-rose-50 border border-rose-200 p-2.5 rounded-xl flex items-center justify-between">
+              <span>{exportError}</span>
+              <button
+                type="button"
+                onClick={handleNativePrint}
+                className="font-bold underline text-rose-700 ml-2 cursor-pointer hover:text-rose-900"
+              >
+                Use Print Dialog Instead
+              </button>
+            </div>
+          )}
 
-          <div className="flex items-center gap-2">
-            {/* Download JPG */}
-            <button
-              type="button"
-              onClick={handleDownloadJpg}
-              disabled={isExporting}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-            >
-              <ImageIcon className="w-4 h-4 text-emerald-600" />
-              <span>Download JPG</span>
-            </button>
+          {exportStatus && (
+            <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 p-2 rounded-xl flex items-center gap-1.5 animate-in fade-in">
+              <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span>{exportStatus}</span>
+            </div>
+          )}
 
-            {/* Download PDF */}
-            <button
-              type="button"
-              onClick={handleDownloadPdf}
-              disabled={isExporting}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#FF4D94] hover:bg-[#E62E76] text-white text-xs font-bold transition-all shadow-md shadow-pink-200 cursor-pointer disabled:opacity-50"
-            >
-              <FileText className="w-4 h-4" />
-              <span>{isExporting ? 'Generating...' : 'Download PDF'}</span>
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-slate-500 flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5 text-pink-500" />
+              <span>2x Ultra-crisp vector export ready for mobile & print</span>
+            </div>
 
-            {/* Print / Save PDF */}
-            <button
-              type="button"
-              onClick={handleNativePrint}
-              disabled={isExporting}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all cursor-pointer"
-              title="Open browser print dialog for native PDF saving"
-            >
-              <Printer className="w-4 h-4 text-slate-500" />
-              <span className="hidden sm:inline">Print</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Continuous Master JPG */}
+              <button
+                type="button"
+                onClick={handleDownloadContinuousJpg}
+                disabled={isExporting}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                title="Download entire study material as one continuous high-res JPG"
+              >
+                <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Full Sheet JPG</span>
+              </button>
 
-            {/* Markdown Export */}
-            <button
-              type="button"
-              onClick={handleDownloadMarkdown}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-slate-500 hover:text-slate-800 text-xs font-semibold hover:bg-slate-50 transition-all cursor-pointer"
-              title="Download raw Markdown file"
-            >
-              {copiedMd ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-500" />
-                  <span className="text-emerald-600">Saved</span>
-                </>
-              ) : (
-                <span>.md</span>
-              )}
-            </button>
-          </div>
+              {/* All Pages JPG (ZIP) */}
+              <button
+                type="button"
+                onClick={handleDownloadAllPagesZip}
+                disabled={isExporting}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                title="Download all pages sliced into individual A4 JPGs packaged in a .ZIP file"
+              >
+                <Download className="w-3.5 h-3.5 text-emerald-600" />
+                <span>All Pages JPG (.ZIP)</span>
+              </button>
+
+              {/* Download Multi-Page PDF */}
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                disabled={isExporting}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#FF4D94] hover:bg-[#E62E76] text-white text-xs font-bold transition-all shadow-md shadow-pink-200 cursor-pointer disabled:opacity-50"
+                title="Download complete formatted multi-page A4 PDF"
+              >
+                <FileText className="w-4 h-4" />
+                <span>{isExporting ? 'Generating...' : 'Multi-Page PDF'}</span>
+              </button>
+
+              {/* Print / Save PDF */}
+              <button
+                type="button"
+                onClick={handleNativePrint}
+                disabled={isExporting}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all cursor-pointer"
+                title="Open browser print dialog for native PDF saving"
+              >
+                <Printer className="w-3.5 h-3.5 text-slate-500" />
+                <span className="hidden sm:inline">Print</span>
+              </button>
+
+              {/* Markdown Export */}
+              <button
+                type="button"
+                onClick={handleDownloadMarkdown}
+                className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-slate-500 hover:text-slate-800 text-xs font-semibold hover:bg-slate-50 transition-all cursor-pointer"
+                title="Download raw Markdown file"
+              >
+                {copiedMd ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                    <span className="text-emerald-600">Saved</span>
+                  </>
+                ) : (
+                  <span>.md</span>
+                )}
+              </button>
+            </div>
         </div>
       </div>
     </div>
-  );
+  </div>
+);
 };

@@ -25,15 +25,81 @@ const ai = new GoogleGenAI({
   },
 });
 
+import { YoutubeTranscript } from 'youtube-transcript';
+
+interface DecodedYouTube {
+  videoId: string;
+  canonicalUrl: string;
+  title: string;
+  author: string;
+  thumbnailUrl: string;
+  transcript?: string;
+}
+
 /**
- * Helper to detect and extract YouTube URLs from user input
+ * Robustly extracts the 11-char YouTube Video ID from any URL format or bare ID
  */
-function extractYouTubeUrl(input: string): string | null {
+function extractYouTubeVideoId(input: string): string | null {
   if (!input) return null;
-  const match = input.match(
-    /(https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|v\/)|youtu\.be\/)[\w\-]+(?:[?&][\w\-=]+)*)/i
-  );
-  return match ? match[1] : null;
+  const trimmed = input.trim();
+  const patterns = [
+    /(?:https?:\/\/)?(?:(?:www|m)\.)?(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|v\/|live\/)|youtu\.be\/)([\w\-]{11})/i,
+    /^[a-zA-Z0-9_\-]{11}$/,
+  ];
+  for (const p of patterns) {
+    const m = trimmed.match(p);
+    if (m && m[1]) return m[1];
+  }
+  return null;
+}
+
+/**
+ * Decodes video metadata via official YouTube oEmbed service and extracts captions/transcripts
+ */
+async function decodeYouTubeVideo(inputUrl: string): Promise<DecodedYouTube | null> {
+  const videoId = extractYouTubeVideoId(inputUrl);
+  if (!videoId) return null;
+
+  const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  let title = 'YouTube Study Video';
+  let author = 'YouTube Educator';
+  let thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+  let transcriptText = '';
+
+  // 1. Fetch title, author & thumbnail via official YouTube oEmbed
+  try {
+    const oembedRes = await fetch(
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(canonicalUrl)}&format=json`,
+      { headers: { 'User-Agent': 'StudyBestie/1.0' } }
+    );
+    if (oembedRes.ok) {
+      const data = (await oembedRes.json()) as any;
+      if (data.title) title = data.title;
+      if (data.author_name) author = data.author_name;
+      if (data.thumbnail_url) thumbnailUrl = data.thumbnail_url;
+    }
+  } catch (err) {
+    console.warn('YouTube oEmbed lookup warning:', err);
+  }
+
+  // 2. Fetch spoken transcript if available
+  try {
+    const transcriptItems = await YoutubeTranscript.fetchTranscript(videoId);
+    if (transcriptItems && transcriptItems.length > 0) {
+      transcriptText = transcriptItems.map((t) => t.text).join(' ').slice(0, 12000);
+    }
+  } catch {
+    // Transcripts disabled on video; continue with grounded search and title
+  }
+
+  return {
+    videoId,
+    canonicalUrl,
+    title,
+    author,
+    thumbnailUrl,
+    transcript: transcriptText || undefined,
+  };
 }
 
 const STUDY_BESTIE_SYSTEM_PROMPT = `<persona>
@@ -45,7 +111,7 @@ When the user provides a YouTube link, topic, document, or assignment, analyze t
 </core_directive>
 
 <operating_rules>
-1. Zero Transcript Begging: If a YouTube link is given, analyze the video directly. Never ever ask the user to fetch or paste a transcript.
+1. Zero Transcript Begging: When a YouTube video is given, analyze the video directly using its title, author, and content. Never ever ask the user to fetch or paste a transcript.
 2. The Feynman Clarity: Explain even the most brain-melting concept so simply that anyone could grasp it, while preserving university-grade technical rigor.
 3. Define Jargon Immediately: Whenever introducing a technical term, explain it in 1 simple sentence right away.
 4. Desi & Relatable Analogies: Anchor abstract equations or algorithms in hilarious, everyday real-world situations (food, relationships, chai, traffic, cricket, Netflix).
@@ -71,6 +137,39 @@ Always format your response using this exact 5-pillar Markdown structure:
 (Provide 2-3 quick self-test questions to verify intuition, along with answers clearly indicated.)
 </output_structure>`;
 
+// Endpoint 0: Decode YouTube link and return video title, creator & thumbnail
+app.get('/api/decode-yt', async (req, res) => {
+  try {
+    const rawUrl = (req.query.url as string) || '';
+    if (!rawUrl) return res.status(400).json({ success: false, error: 'URL parameter is required' });
+
+    const decoded = await decodeYouTubeVideo(rawUrl);
+    if (!decoded) {
+      return res.status(404).json({ success: false, error: 'Could not decode YouTube link or invalid ID' });
+    }
+
+    res.json({ success: true, video: decoded });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error?.message || 'Failed to decode YouTube link' });
+  }
+});
+
+app.post('/api/decode-yt', async (req, res) => {
+  try {
+    const rawUrl = req.body?.url || '';
+    if (!rawUrl) return res.status(400).json({ success: false, error: 'URL is required' });
+
+    const decoded = await decodeYouTubeVideo(rawUrl);
+    if (!decoded) {
+      return res.status(404).json({ success: false, error: 'Could not decode YouTube link or invalid ID' });
+    }
+
+    res.json({ success: true, video: decoded });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error?.message || 'Failed to decode YouTube link' });
+  }
+});
+
 // Endpoint 1: Transform YouTube link, notes, or topic into Feynman-style Bestie Lesson
 app.post('/api/educate', async (req, res) => {
   try {
@@ -81,10 +180,35 @@ app.post('/api/educate', async (req, res) => {
     }
 
     const trimmedMaterial = material.trim();
-    const youtubeUrl = extractYouTubeUrl(trimmedMaterial);
+    // Decode YouTube link if present
+    const decodedYT = await decodeYouTubeVideo(trimmedMaterial);
 
-    const promptText = `Hey Bestie! Please analyze and teach this ${youtubeUrl ? 'YouTube video' : 'study material'}.
-${youtubeUrl ? `YouTube Video URL: ${youtubeUrl}\n` : ''}
+    let promptText = '';
+    if (decodedYT) {
+      promptText = `Hey Bestie! Please teach and analyze this specific YouTube video:
+- Video Title: "${decodedYT.title}"
+- Channel / Instructor: "${decodedYT.author}"
+- Video URL: ${decodedYT.canonicalUrl}
+- Video ID: ${decodedYT.videoId}
+${decodedYT.transcript ? `\n=== ACTUAL SPOKEN TRANSCRIPT / CONTENT FROM VIDEO ===\n${decodedYT.transcript}\n=== END TRANSCRIPT ===\n` : ''}
+Target Learner Level: ${learnerLevel || 'Undergraduate'}
+${specificQuestions ? `Student's Specific Worry / Sticking Point:\n"${specificQuestions}"\n` : ''}
+
+=== USER PROMPT / NOTES ===
+${trimmedMaterial}
+=== END CONTENT ===
+
+Persona Reminder: You are the Ultimate Study Bestie speaking in engaging English + Hinglish banter ("mai samjha dunga!").
+Teach the exact material covered in "${decodedYT.title}" by ${decodedYT.author} so clearly that even the most complex idea feels natural and intuitive.
+
+Strictly format your response with the 5-pillar Markdown structure:
+## 1. Asli Mudda (The Big Picture) 🌍
+## 2. Dimaag Mein Fit Karne Wali Cheezein (Key Concepts Broken Down) 🧠
+## 3. Ek Dum Desi / Real-World Analogy 💡
+## 4. Exam & Real-Life Mein Kaise Fodna Hai (Practical Application) 🛠️
+## 5. Test Yourself Yaar! (Quick Review & Self-Test) 📝`;
+    } else {
+      promptText = `Hey Bestie! Please analyze and teach this study material:
 Target Learner Level: ${learnerLevel || 'Undergraduate'}
 ${specificQuestions ? `Student's Specific Worry / Sticking Point:\n"${specificQuestions}"\n` : ''}
 
@@ -92,47 +216,33 @@ ${specificQuestions ? `Student's Specific Worry / Sticking Point:\n"${specificQu
 ${trimmedMaterial}
 === END CONTENT ===
 
-Remember your persona: The Ultimate Study Bestie speaking in engaging English + Hinglish banter ("mai samjha dunga!").
-Strictly structure with:
+Persona Reminder: You are the Ultimate Study Bestie speaking in engaging English + Hinglish banter ("mai samjha dunga!").
+Strictly format your response with the 5-pillar Markdown structure:
 ## 1. Asli Mudda (The Big Picture) 🌍
 ## 2. Dimaag Mein Fit Karne Wali Cheezein (Key Concepts Broken Down) 🧠
 ## 3. Ek Dum Desi / Real-World Analogy 💡
 ## 4. Exam & Real-Life Mein Kaise Fodna Hai (Practical Application) 🛠️
 ## 5. Test Yourself Yaar! (Quick Review & Self-Test) 📝`;
-
-    // Construct Gemini contents payload:
-    // If a YouTube URL is present, use FileData part with fileUri pointing directly to YouTube!
-    const contents: any[] = [];
-    if (youtubeUrl) {
-      contents.push({
-        fileData: {
-          fileUri: youtubeUrl,
-          mimeType: 'video/mp4',
-        },
-      });
     }
-    contents.push({ text: promptText });
 
     let response;
     try {
+      // First attempt with Google Search Grounding to get exact syllabus & video facts
       response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
-        contents: contents,
+        contents: [{ text: promptText }],
         config: {
           systemInstruction: STUDY_BESTIE_SYSTEM_PROMPT,
+          tools: [{ googleSearch: {} }],
           temperature: 0.7,
         },
       });
-    } catch (videoError: any) {
-      // If direct video URI processing fails (e.g. video is private or restricted), fallback to text-only with video context
-      console.warn('Native video URI call had an issue, falling back to text prompt with URL context:', videoError?.message);
+    } catch (groundingError: any) {
+      console.warn('Search grounding unavailable, falling back to direct prompt:', groundingError?.message);
+      // Fallback directly without tools
       response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
-        contents: [
-          {
-            text: `[Context: The user provided YouTube link: ${youtubeUrl || ''}. Analyze the topic and teach it with utmost depth as the Study Bestie.]\n\n` + promptText,
-          },
-        ],
+        contents: [{ text: promptText }],
         config: {
           systemInstruction: STUDY_BESTIE_SYSTEM_PROMPT,
           temperature: 0.7,
@@ -144,8 +254,9 @@ Strictly structure with:
     res.json({
       success: true,
       lessonMarkdown: markdownText,
-      detectedYouTube: Boolean(youtubeUrl),
-      youtubeUrl: youtubeUrl || null,
+      detectedYouTube: Boolean(decodedYT),
+      video: decodedYT || null,
+      youtubeUrl: decodedYT ? decodedYT.canonicalUrl : null,
     });
   } catch (error: any) {
     console.error('Error generating lesson in /api/educate:', error);
@@ -480,6 +591,211 @@ app.get('/api/share-recent', (_req, res) => {
     });
   } catch (error: any) {
     res.json({ success: false, recent: [] });
+  }
+});
+
+// === REAL-TIME PEER STUDY SCREEN SHARE & SYNC ===
+interface PeerScreenState {
+  peerId: string;
+  username: string;
+  activeLessonTitle: string;
+  markdown: string;
+  notes: string;
+  mode: string;
+  video?: any;
+  messages?: any[];
+  lastUpdated: number;
+  pairedPeerId?: string;
+  activePresenterId?: string;
+}
+
+const peerScreens = new Map<string, PeerScreenState>();
+
+// Pre-seed sample active peer study sessions
+peerScreens.set('BESTIE-ALEX', {
+  peerId: 'BESTIE-ALEX',
+  username: 'Alex Sharma ⚛️',
+  activeLessonTitle: 'Quantum Mechanics: Wave-Particle Duality',
+  markdown: `## 1. Asli Mudda (The Big Picture) 🌍
+Light and matter behave like particles when you count them, and like waves when they travel! Tension mat lo, mai samjha dunga!
+
+## 2. Dimaag Mein Fit Karne Wali Cheezein (Key Concepts Broken Down) 🧠
+### De Broglie Wavelength
+$$\\lambda = \\frac{h}{p} = \\frac{h}{mv}$$
+Everything with momentum has an associated matter wave! For a macroscopic ball, mass is huge so $\\lambda$ is $10^{-34}$ meters (undetectable). For an electron, $\\lambda$ is $10^{-10}$ meters!
+
+### Heisenberg Uncertainty Principle
+$$\\Delta x \\cdot \\Delta p \\ge \\frac{\\hbar}{2}$$
+You cannot determine both the position and momentum of a subatomic particle with arbitrary precision.
+
+## 3. Ek Dum Desi / Real-World Analogy 💡
+Imagine a fast-spinning ceiling fan! When it spins at 1000 RPM, it looks like a continuous blurry sheet (wave). But turn it off, and it's 3 distinct blades (particles)!
+
+## 4. Exam & Real-Life Mein Kaise Fodna Hai (Practical Application) 🛠️
+Used in Transmission Electron Microscopes (TEM) to resolve atomic lattices.
+
+## 5. Test Yourself Yaar! (Quick Review & Self-Test) 📝
+**Question 1:** Why is matter wavelength invisible in daily life?
+**Answer 1:** Because Planck's constant $h$ is tiny ($6.626 \\times 10^{-34}$) and everyday mass is huge, making $\\lambda$ negligibly small!`,
+  notes: 'De Broglie: lambda = h/p. Heisenberg: dx * dp >= hbar/2.',
+  mode: 'bestie_mode',
+  lastUpdated: Date.now() - 60000,
+});
+
+peerScreens.set('BESTIE-PRIYA', {
+  peerId: 'BESTIE-PRIYA',
+  username: 'Priya Patel 💻',
+  activeLessonTitle: 'Dynamic Programming: 0/1 Knapsack Intuition',
+  markdown: `## 1. Asli Mudda (The Big Picture) 🌍
+Dynamic Programming is remembering previous calculations so you never solve the same subproblem twice! Tension mat lo, mai samjha dunga!
+
+## 2. Dimaag Mein Fit Karne Wali Cheezein (Key Concepts Broken Down) 🧠
+### 0/1 Knapsack Recurrence
+$$DP[i][w] = \\max(DP[i-1][w], \\text{val}[i] + DP[i-1][w - \\text{wt}[i]])$$
+At every item, make the binary choice: Take it or leave it!
+
+## 3. Ek Dum Desi / Real-World Analogy 💡
+Packing your luggage for a weekend trip! Your suitcase has a 7kg limit. Do you take your laptop or extra clothes? You pick whatever maximizes trip value!
+
+## 4. Exam & Real-Life Mein Kaise Fodna Hai (Practical Application) 🛠️
+Used in resource allocation, investment portfolio optimization, and packet scheduling.
+
+## 5. Test Yourself Yaar! (Quick Review & Self-Test) 📝
+**Question 1:** What are the two core properties of DP?
+**Answer 1:** Overlapping Subproblems and Optimal Substructure!`,
+  notes: 'Knapsack state: DP[i][w]. Time complexity O(N*W).',
+  mode: 'bestie_mode',
+  lastUpdated: Date.now() - 180000,
+});
+
+// Endpoint 7: Sync / update current user's screen state
+app.post('/api/peer/sync', (req, res) => {
+  try {
+    const { peerId, username, activeLessonTitle, markdown, notes, mode, video, messages, pairedPeerId, activePresenterId } = req.body;
+
+    if (!peerId) {
+      return res.status(400).json({ success: false, error: 'Peer ID is required to sync' });
+    }
+
+    const cleanPeerId = peerId.trim().toUpperCase();
+    const existing = peerScreens.get(cleanPeerId);
+
+    const state: PeerScreenState = {
+      peerId: cleanPeerId,
+      username: (username || 'Study Bestie').trim(),
+      activeLessonTitle: (activeLessonTitle || 'Live Study Session').trim(),
+      markdown: (markdown || '').trim(),
+      notes: (notes || '').trim(),
+      mode: mode || 'bestie_mode',
+      video: video || null,
+      messages: messages || [],
+      lastUpdated: Date.now(),
+      pairedPeerId: pairedPeerId || existing?.pairedPeerId,
+      activePresenterId: activePresenterId || existing?.activePresenterId,
+    };
+
+    peerScreens.set(cleanPeerId, state);
+
+    res.json({
+      success: true,
+      lastUpdated: state.lastUpdated,
+      peerId: cleanPeerId,
+      pairedPeerId: state.pairedPeerId,
+      activePresenterId: state.activePresenterId,
+    });
+  } catch (error: any) {
+    console.error('Error syncing peer screen:', error);
+    res.status(500).json({ success: false, error: 'Failed to sync screen state' });
+  }
+});
+
+// Endpoint 8: Fetch a peer's live screen state by their Peer ID or username
+app.get('/api/peer/:id', (req, res) => {
+  try {
+    const rawId = (req.params.id || '').trim().toUpperCase();
+
+    // Support both "BESTIE-XXXXX" or bare code
+    let matchId = rawId;
+    if (!matchId.startsWith('BESTIE-') && matchId.length <= 6) {
+      matchId = `BESTIE-${matchId}`;
+    }
+
+    let screen = peerScreens.get(matchId);
+
+    // If not found by ID, search by username
+    if (!screen) {
+      const lower = rawId.toLowerCase();
+      screen = Array.from(peerScreens.values()).find(
+        (s) => s.username.toLowerCase().includes(lower) || s.peerId.toLowerCase() === lower
+      );
+    }
+
+    if (!screen) {
+      return res.status(404).json({
+        success: false,
+        error: `Could not find live screen for "${rawId}". Make sure your friend has the app open!`,
+      });
+    }
+
+    res.json({
+      success: true,
+      screen,
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'Failed to fetch friend screen' });
+  }
+});
+
+// Endpoint 8b: Switch active presenter between paired friends
+app.post('/api/peer/switch', (req, res) => {
+  try {
+    const { requesterId, targetId, newPresenterId } = req.body;
+    if (!requesterId || !targetId) {
+      return res.status(400).json({ success: false, error: 'Both requesterId and targetId are required' });
+    }
+    const cleanReq = requesterId.trim().toUpperCase();
+    const cleanTarget = targetId.trim().toUpperCase();
+    const presenter = (newPresenterId || cleanReq).trim().toUpperCase();
+
+    const reqScreen = peerScreens.get(cleanReq);
+    const targetScreen = peerScreens.get(cleanTarget);
+
+    if (reqScreen) {
+      reqScreen.pairedPeerId = cleanTarget;
+      reqScreen.activePresenterId = presenter;
+      reqScreen.lastUpdated = Date.now();
+    }
+    if (targetScreen) {
+      targetScreen.pairedPeerId = cleanReq;
+      targetScreen.activePresenterId = presenter;
+      targetScreen.lastUpdated = Date.now();
+    }
+
+    res.json({
+      success: true,
+      activePresenterId: presenter,
+      pairedPeerId: cleanTarget,
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'Failed to switch presenter' });
+  }
+});
+
+// Endpoint 9: Get list of active peers sharing screen
+app.get('/api/peer-list', (_req, res) => {
+  try {
+    const list = Array.from(peerScreens.values()).map((s) => ({
+      peerId: s.peerId,
+      username: s.username,
+      activeLessonTitle: s.activeLessonTitle,
+      mode: s.mode,
+      lastUpdated: s.lastUpdated,
+      hasLesson: Boolean(s.markdown),
+    }));
+
+    res.json({ success: true, peers: list });
+  } catch {
+    res.json({ success: false, peers: [] });
   }
 });
 

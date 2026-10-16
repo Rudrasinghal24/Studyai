@@ -53,3 +53,23 @@ export interface ParsedLessonSections {
   selfTest?: string;
   unparsed?: string;
 }
+
+export interface PeerScreenState {
+  peerId: string;
+  username: string;
+  activeLessonTitle: string;
+  markdown: string;
+  notes: string;
+  mode: 'deep_dive' | 'bestie_mode' | string;
+  video?: {
+    videoId: string;
+    title: string;
+    author: string;
+    thumbnailUrl: string;
+  } | null;
+  messages?: any[];
+  lastUpdated: number;
+  pairedPeerId?: string;
+  activePresenterId?: string;
+}
+
