@@ -1,0 +1,6 @@
+{
+  "name": "Study Bestie — Mai Samjha Dunga",
+  "description": "Your humorous, fiercely loyal genius study bestie. Drop any YouTube link or topic, aur mai samjha dunga with the Feynman Technique, desi analogies, and interactive tests!",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

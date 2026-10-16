@@ -1,0 +1,267 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background: linear-gradient(180deg, #FFE6F0 0%, #FFF5F8 100%);
+    color: #1E293B;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+  }
+}
+
+.text-gradient-logo {
+  background: linear-gradient(135deg, #FF3385 0%, #20B2AA 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.button-gradient-pink-mint {
+  background: linear-gradient(90deg, #FFB6C1 0%, #98FB98 100%);
+}
+
+.button-gradient-pink-mint:hover:not(:disabled) {
+  opacity: 0.95;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 25px -5px rgba(255, 182, 193, 0.5);
+}
+
+.button-gradient-pink-mint:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Chat & lesson prose formatting */
+.markdown-body {
+  color: #334155;
+  line-height: 1.8;
+  font-size: 0.96rem;
+}
+
+.markdown-body h1 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #0F172A;
+  margin-top: 1.75rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #FBCFE8;
+  letter-spacing: -0.015em;
+}
+
+.markdown-body h2 {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #0F172A;
+  margin-top: 1.75rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid #FCE7F3;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  letter-spacing: -0.01em;
+}
+
+.markdown-body h3 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0D9488;
+  margin-top: 1.35rem;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.markdown-body h4 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #475569;
+  margin-top: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.markdown-body p {
+  margin-bottom: 0.85rem;
+}
+
+.markdown-body ul, .markdown-body ol {
+  margin-top: 0.4rem;
+  margin-bottom: 1rem;
+  padding-left: 1.4rem;
+}
+
+.markdown-body ul {
+  list-style-type: disc;
+}
+
+.markdown-body ol {
+  list-style-type: decimal;
+}
+
+.markdown-body li {
+  margin-bottom: 0.35rem;
+}
+
+.markdown-body strong {
+  font-weight: 700;
+  color: #FF3385;
+}
+
+.markdown-body em {
+  color: #475569;
+  font-style: italic;
+}
+
+.markdown-body hr {
+  border: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #F472B6, transparent);
+  margin: 1.5rem 0;
+}
+
+.markdown-body blockquote {
+  border-left: 4px solid #FF4D94;
+  background: linear-gradient(135deg, #FFF0F5 0%, #F0FDFA 100%);
+  padding: 0.75rem 1rem;
+  border-radius: 0 0.75rem 0.75rem 0;
+  color: #334155;
+  font-style: italic;
+  margin: 1.25rem 0;
+  box-shadow: 0 2px 8px -2px rgba(255, 182, 193, 0.2);
+}
+
+.markdown-body blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* Inline Code tags */
+.markdown-body code:not(pre code) {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.86em;
+  background-color: #F0FDFA;
+  color: #0F766E;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.35rem;
+  border: 1px solid #CCFBF1;
+  font-weight: 600;
+}
+
+/* Architecture Diagrams & Code Blocks */
+.font-diagram {
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace !important;
+  font-variant-ligatures: none !important;
+  font-feature-settings: "liga" 0 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.45 !important;
+  tab-size: 2 !important;
+}
+
+.code-container pre::-webkit-scrollbar {
+  height: 8px;
+}
+
+.code-container pre::-webkit-scrollbar-track {
+  background: #1E293B;
+}
+
+.code-container pre::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+.code-container pre::-webkit-scrollbar-thumb:hover {
+  background: #64748B;
+}
+
+/* Responsive GFM Tables */
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  margin: 1.25rem 0;
+  border-radius: 0.85rem;
+  border: 1px solid #FBCFE8;
+  box-shadow: 0 4px 12px -2px rgba(255, 182, 193, 0.15);
+  background: #ffffff;
+}
+
+.table-wrapper::-webkit-scrollbar {
+  height: 6px;
+}
+
+.table-wrapper::-webkit-scrollbar-track {
+  background: #FDF2F8;
+}
+
+.table-wrapper::-webkit-scrollbar-thumb {
+  background: #F472B6;
+  border-radius: 3px;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.markdown-body th {
+  background: linear-gradient(135deg, #FDF2F8 0%, #F0FDFA 100%);
+  color: #831843;
+  font-weight: 700;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.75rem 1rem;
+  border-bottom: 2px solid #FBCFE8;
+  white-space: nowrap;
+}
+
+.markdown-body td {
+  padding: 0.75rem 1rem;
+  color: #334155;
+  border-bottom: 1px solid #FCE7F3;
+  line-height: 1.5;
+  vertical-align: top;
+}
+
+.markdown-body tr:last-child td {
+  border-bottom: none;
+}
+
+.markdown-body tr:nth-child(even) td {
+  background-color: #FFFDFE;
+}
+
+.markdown-body tr:hover td {
+  background-color: #FFF1F2;
+}
+
+/* KaTeX Math Styling */
+.katex-display-wrapper {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+}
+
+.katex-display-wrapper::-webkit-scrollbar {
+  height: 5px;
+}
+
+.katex-display-wrapper::-webkit-scrollbar-thumb {
+  background: #F472B6;
+  border-radius: 2.5px;
+}
+
+.katex-display {
+  margin: 0.5rem 0 !important;
+  color: #0F172A;
+}
+
+.katex {
+  font-size: 1.05em;
+}
+
+.katex-inline {
+  display: inline-block;
+  vertical-align: middle;
+}
