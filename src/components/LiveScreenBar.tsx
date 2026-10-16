@@ -9,14 +9,19 @@ import {
   Radio,
   ArrowRightLeft,
   ArrowRight,
-  Tv,
+  Flame,
+  User,
+  Sparkles,
 } from 'lucide-react';
 import { PeerScreenState } from '../types';
 
 interface LiveScreenBarProps {
   myPeerId: string;
   myUsername: string;
-  onUpdateUsername: (name: string) => void;
+  myAvatar: string;
+  onOpenEditProfile: () => void;
+  streakCount: number;
+  onOpenStreakModal: () => void;
   friendScreen: PeerScreenState | null;
   activeScreenMode: 'my_screen' | 'friend_screen';
   activePresenterId?: string;
@@ -31,7 +36,10 @@ interface LiveScreenBarProps {
 export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
   myPeerId,
   myUsername,
-  onUpdateUsername,
+  myAvatar,
+  onOpenEditProfile,
+  streakCount,
+  onOpenStreakModal,
   friendScreen,
   activeScreenMode,
   isPeerSyncing,
@@ -42,8 +50,6 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
   onRefresh,
 }) => {
   const [copied, setCopied] = useState(false);
-  const [isEditingUsername, setIsEditingUsername] = useState(false);
-  const [tempUsername, setTempUsername] = useState(myUsername);
   const [quickFriendInput, setQuickFriendInput] = useState('');
   const [connectError, setConnectError] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -54,13 +60,6 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
       setCopied(true);
       setTimeout(() => setCopied(false), 2200);
     } catch {}
-  };
-
-  const handleSaveUsername = () => {
-    if (tempUsername.trim()) {
-      onUpdateUsername(tempUsername.trim());
-    }
-    setIsEditingUsername(false);
   };
 
   const handleQuickConnect = async (e?: React.FormEvent) => {
@@ -91,17 +90,29 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
   };
 
   const isWatchingFriend = Boolean(friendScreen && activeScreenMode === 'friend_screen');
+  const isImageAvatar = myAvatar && (myAvatar.startsWith('data:') || myAvatar.startsWith('http'));
 
   return (
     <div className="w-full max-w-4xl mb-4 bg-white/95 backdrop-blur-md rounded-2xl p-2.5 sm:p-3.5 shadow-md shadow-pink-100/60 border border-pink-200/80 flex flex-col gap-2.5 transition-all">
-      {/* Top Row: User Identity (Always visible) & ID & Direct Connect Input */}
+      {/* Top Row: User Identity (Always visible) & ID & Streak Badge & Quick Connect */}
       <div className="flex flex-wrap items-center justify-between gap-2.5">
-        {/* Left: User Identity + ID */}
+        {/* Left: User Avatar + Name + ID */}
         <div className="flex items-center gap-2">
-          {/* Avatar with pulse */}
-          <div className="relative">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#FF4D94] to-[#FF80B5] text-white flex items-center justify-center font-bold text-xs shadow-xs">
-              {myUsername.charAt(0).toUpperCase() || 'B'}
+          {/* Avatar with pulse & click-to-edit */}
+          <button
+            type="button"
+            onClick={onOpenEditProfile}
+            className="relative group cursor-pointer"
+            title="Click to edit profile photo & Bestie name"
+          >
+            <div className="w-9 h-9 rounded-xl overflow-hidden bg-gradient-to-tr from-[#FF4D94] to-[#FF80B5] text-white flex items-center justify-center font-bold text-xs shadow-xs border-2 border-white group-hover:scale-105 transition-transform">
+              {isImageAvatar ? (
+                <img src={myAvatar} alt="Avatar" className="w-full h-full object-cover" />
+              ) : myAvatar ? (
+                <span className="text-base select-none">{myAvatar}</span>
+              ) : (
+                <span>{myUsername.charAt(0).toUpperCase() || 'B'}</span>
+              )}
             </div>
             <span
               className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${
@@ -109,46 +120,21 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
               }`}
               title="Study Screen Active & Broadcasting"
             />
-          </div>
+          </button>
 
-          {/* Username (editable) & ID Badge */}
+          {/* Username (click to edit) & ID Badge */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
-            {isEditingUsername ? (
-              <div className="flex items-center gap-1">
-                <input
-                  type="text"
-                  value={tempUsername}
-                  onChange={(e) => setTempUsername(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSaveUsername()}
-                  autoFocus
-                  className="px-2 py-0.5 text-xs font-bold text-slate-800 bg-pink-50 border border-pink-300 rounded-md outline-none max-w-[130px]"
-                />
-                <button
-                  type="button"
-                  onClick={handleSaveUsername}
-                  className="px-1.5 py-0.5 text-[11px] font-bold bg-[#FF4D94] text-white rounded hover:bg-[#e62e76] cursor-pointer"
-                >
-                  Save
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs sm:text-sm font-extrabold text-slate-800">
-                  {myUsername}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTempUsername(myUsername);
-                    setIsEditingUsername(true);
-                  }}
-                  className="text-slate-400 hover:text-pink-600 transition-colors p-0.5 cursor-pointer"
-                  title="Edit your display username"
-                >
-                  <Edit2 className="w-3 h-3" />
-                </button>
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={onOpenEditProfile}
+              className="flex items-center gap-1.5 text-left group cursor-pointer"
+              title="Click to edit Bestie name & profile"
+            >
+              <span className="text-xs sm:text-sm font-extrabold text-slate-800 group-hover:text-pink-600 transition-colors">
+                {myUsername}
+              </span>
+              <Edit2 className="w-3 h-3 text-slate-400 group-hover:text-pink-500 transition-colors" />
+            </button>
 
             {/* Permanent Study ID Badge with 1-Click Copy */}
             <button
@@ -166,6 +152,17 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
               ) : (
                 <Copy className="w-3 h-3 text-pink-400 group-hover:text-pink-700 transition-colors" />
               )}
+            </button>
+
+            {/* Study Streak Badge */}
+            <button
+              type="button"
+              onClick={onOpenStreakModal}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-orange-50 to-amber-50 hover:from-orange-100 hover:to-amber-100 text-orange-700 border border-orange-200 font-extrabold text-[11px] sm:text-xs transition-all cursor-pointer shadow-2xs"
+              title="Click to view your study streak history & stats"
+            >
+              <Flame className="w-3.5 h-3.5 text-orange-500 animate-pulse" />
+              <span>{streakCount}d Streak</span>
             </button>
           </div>
         </div>
@@ -235,15 +232,15 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
                 <RefreshCw className={`w-3.5 h-3.5 ${isPeerSyncing ? 'animate-spin' : ''}`} />
               </button>
 
-              {/* Disconnect */}
+              {/* Disconnect / Exit Button */}
               <button
                 type="button"
                 onClick={onDisconnect}
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold transition-colors cursor-pointer"
-                title="Disconnect from friend's screen"
+                title="Exit and break screen share connection"
               >
                 <LogOut className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Exit</span>
+                <span>Exit</span>
               </button>
             </div>
           )}
@@ -267,17 +264,26 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
         >
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-            <span>
-              {isWatchingFriend ? (
-                <>
-                  🔴 Watching <strong>{friendScreen.username}</strong>'s Study Screen (Live Sync • {friendScreen.peerId})
-                </>
-              ) : (
-                <>
-                  🟢 Broadcasting your study screen to <strong>{friendScreen.username}</strong> ({friendScreen.peerId})
-                </>
+            <div className="flex items-center gap-1.5">
+              {friendScreen.avatarUrl && (
+                friendScreen.avatarUrl.startsWith('data:') || friendScreen.avatarUrl.startsWith('http') ? (
+                  <img src={friendScreen.avatarUrl} alt="" className="w-5 h-5 rounded-full object-cover border border-white" />
+                ) : (
+                  <span>{friendScreen.avatarUrl}</span>
+                )
               )}
-            </span>
+              <span>
+                {isWatchingFriend ? (
+                  <>
+                    🔴 Watching <strong>{friendScreen.username}</strong>'s Study Screen (Live Sync • {friendScreen.peerId})
+                  </>
+                ) : (
+                  <>
+                    🟢 Broadcasting your study screen to <strong>{friendScreen.username}</strong> ({friendScreen.peerId})
+                  </>
+                )}
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 text-[11px]">

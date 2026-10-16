@@ -170,17 +170,34 @@ app.post('/api/decode-yt', async (req, res) => {
   }
 });
 
-// Helper for ultra-fast, resilient Gemini API calls (typically responds in 1-2 seconds)
+// Helper for resilient Gemini API calls with automatic model cascade (flash -> flash-lite)
 async function generateGeminiContentWithFallback(params: {
   contents: any;
   systemInstruction?: string;
   tools?: any[];
   temperature?: number;
 }) {
-  // gemini-3.1-flash-lite responds in ~1.5s with excellent LaTeX & markdown quality and zero 503 errors!
-  const models = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+  const models = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
   let lastErr;
 
+  // 1. If tools (like Search) are provided, try with primary model
+  if (params.tools && params.tools.length > 0) {
+    try {
+      return await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: params.contents,
+        config: {
+          systemInstruction: params.systemInstruction,
+          tools: params.tools,
+          temperature: params.temperature ?? 0.7,
+        },
+      });
+    } catch (err: any) {
+      console.warn('Tool-augmented call failed, falling back to direct prompt generation:', err?.message || err);
+    }
+  }
+
+  // 2. Cascade across standard models to resist 503 / high demand spikes
   for (const model of models) {
     try {
       return await ai.models.generateContent({
@@ -258,6 +275,7 @@ Strictly format your response with the 5-pillar Markdown structure:
     const response = await generateGeminiContentWithFallback({
       contents: [{ text: promptText }],
       systemInstruction: STUDY_BESTIE_SYSTEM_PROMPT,
+      tools: [{ googleSearch: {} }],
       temperature: 0.7,
     });
 
@@ -606,6 +624,7 @@ app.get('/api/share-recent', (_req, res) => {
 interface PeerScreenState {
   peerId: string;
   username: string;
+  avatarUrl?: string;
   activeLessonTitle: string;
   markdown: string;
   notes: string;
@@ -679,7 +698,20 @@ Used in resource allocation, investment portfolio optimization, and packet sched
 // Endpoint 7: Sync / update current user's screen state
 app.post('/api/peer/sync', (req, res) => {
   try {
-    const { peerId, username, activeLessonTitle, markdown, notes, mode, video, messages, pairedPeerId, activePresenterId } = req.body;
+    const {
+      peerId,
+      username,
+      avatarUrl,
+      activeLessonTitle,
+      markdown,
+      notes,
+      mode,
+      video,
+      messages,
+      pairedPeerId,
+      activePresenterId,
+      disconnecting,
+    } = req.body;
 
     if (!peerId) {
       return res.status(400).json({ success: false, error: 'Peer ID is required to sync' });
@@ -688,9 +720,19 @@ app.post('/api/peer/sync', (req, res) => {
     const cleanPeerId = peerId.trim().toUpperCase();
     const existing = peerScreens.get(cleanPeerId);
 
+    // If explicit disconnect requested or pairedPeerId is null
+    const finalPairedPeerId = disconnecting || pairedPeerId === null || pairedPeerId === ''
+      ? undefined
+      : (pairedPeerId !== undefined ? pairedPeerId : existing?.pairedPeerId);
+
+    const finalPresenterId = disconnecting || activePresenterId === null || activePresenterId === ''
+      ? undefined
+      : (activePresenterId !== undefined ? activePresenterId : existing?.activePresenterId);
+
     const state: PeerScreenState = {
       peerId: cleanPeerId,
       username: (username || 'Study Bestie').trim(),
+      avatarUrl: (avatarUrl !== undefined ? avatarUrl : existing?.avatarUrl || '').trim(),
       activeLessonTitle: (activeLessonTitle || 'Live Study Session').trim(),
       markdown: (markdown || '').trim(),
       notes: (notes || '').trim(),
@@ -698,8 +740,8 @@ app.post('/api/peer/sync', (req, res) => {
       video: video || null,
       messages: messages || [],
       lastUpdated: Date.now(),
-      pairedPeerId: pairedPeerId || existing?.pairedPeerId,
-      activePresenterId: activePresenterId || existing?.activePresenterId,
+      pairedPeerId: finalPairedPeerId,
+      activePresenterId: finalPresenterId,
     };
 
     peerScreens.set(cleanPeerId, state);
@@ -789,12 +831,41 @@ app.post('/api/peer/switch', (req, res) => {
   }
 });
 
+// Endpoint 8c: Explicit Disconnect - Breaks connection on both sides
+app.post('/api/peer/disconnect', (req, res) => {
+  try {
+    const { peerId, friendId } = req.body;
+    if (peerId) {
+      const cleanPeer = peerId.trim().toUpperCase();
+      const p = peerScreens.get(cleanPeer);
+      if (p) {
+        delete p.pairedPeerId;
+        delete p.activePresenterId;
+        p.lastUpdated = Date.now();
+      }
+    }
+    if (friendId) {
+      const cleanFriend = friendId.trim().toUpperCase();
+      const f = peerScreens.get(cleanFriend);
+      if (f) {
+        delete f.pairedPeerId;
+        delete f.activePresenterId;
+        f.lastUpdated = Date.now();
+      }
+    }
+    res.json({ success: true, message: 'Screen share disconnected' });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'Failed to disconnect screen share' });
+  }
+});
+
 // Endpoint 9: Get list of active peers sharing screen
 app.get('/api/peer-list', (_req, res) => {
   try {
     const list = Array.from(peerScreens.values()).map((s) => ({
       peerId: s.peerId,
       username: s.username,
+      avatarUrl: s.avatarUrl || '',
       activeLessonTitle: s.activeLessonTitle,
       mode: s.mode,
       lastUpdated: s.lastUpdated,
@@ -813,10 +884,7 @@ async function startServer() {
 
   if (!isProd) {
     const vite = await createViteServer({
-      server: {
-        middlewareMode: true,
-        hmr: false,
-      },
+      server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);

@@ -57,6 +57,7 @@ export interface ParsedLessonSections {
 export interface PeerScreenState {
   peerId: string;
   username: string;
+  avatarUrl?: string;
   activeLessonTitle: string;
   markdown: string;
   notes: string;

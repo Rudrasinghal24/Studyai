@@ -19,6 +19,8 @@ interface ScreenShareModalProps {
   onClose: () => void;
   myPeerId: string;
   myUsername: string;
+  myAvatar?: string;
+  onOpenEditProfile?: () => void;
   onConnectPeer: (peerId: string) => Promise<boolean>;
   activeFriendScreen: PeerScreenState | null;
   onSwitchScreen: () => void;
@@ -30,6 +32,8 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({
   onClose,
   myPeerId,
   myUsername,
+  myAvatar,
+  onOpenEditProfile,
   onConnectPeer,
   activeFriendScreen,
   onSwitchScreen,
