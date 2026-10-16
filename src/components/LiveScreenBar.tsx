@@ -5,11 +5,11 @@ import {
   Check,
   Edit2,
   RefreshCw,
-  Users,
   LogOut,
   Radio,
   ArrowRightLeft,
-  Sparkles,
+  ArrowRight,
+  Tv,
 } from 'lucide-react';
 import { PeerScreenState } from '../types';
 
@@ -22,6 +22,7 @@ interface LiveScreenBarProps {
   activePresenterId?: string;
   isPeerSyncing: boolean;
   onOpenScreenShareModal: () => void;
+  onConnectFriendId: (friendId: string) => Promise<boolean>;
   onSwitchScreen: () => void;
   onDisconnect: () => void;
   onRefresh: () => void;
@@ -33,9 +34,9 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
   onUpdateUsername,
   friendScreen,
   activeScreenMode,
-  activePresenterId,
   isPeerSyncing,
   onOpenScreenShareModal,
+  onConnectFriendId,
   onSwitchScreen,
   onDisconnect,
   onRefresh,
@@ -43,6 +44,9 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
   const [copied, setCopied] = useState(false);
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [tempUsername, setTempUsername] = useState(myUsername);
+  const [quickFriendInput, setQuickFriendInput] = useState('');
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   const handleCopyId = async () => {
     try {
@@ -59,16 +63,42 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
     setIsEditingUsername(false);
   };
 
+  const handleQuickConnect = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = quickFriendInput.trim().toUpperCase();
+    if (!clean) return;
+    if (clean === myPeerId) {
+      setConnectError('Enter your friend’s ID, not your own!');
+      setTimeout(() => setConnectError(null), 3000);
+      return;
+    }
+    setConnectError(null);
+    setIsConnecting(true);
+    try {
+      const ok = await onConnectFriendId(clean);
+      if (ok) {
+        setQuickFriendInput('');
+      } else {
+        setConnectError(`ID "${clean}" not found. Ensure friend has app open!`);
+        setTimeout(() => setConnectError(null), 4000);
+      }
+    } catch {
+      setConnectError('Connection failed. Please retry.');
+      setTimeout(() => setConnectError(null), 3000);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
   const isWatchingFriend = Boolean(friendScreen && activeScreenMode === 'friend_screen');
-  const isBroadcastingToFriend = Boolean(friendScreen && activeScreenMode === 'my_screen');
 
   return (
-    <div className="w-full max-w-4xl mb-4 bg-white/95 backdrop-blur-md rounded-2xl p-2.5 sm:p-3 shadow-md shadow-pink-100/60 border border-pink-200/80 flex flex-col gap-2 transition-all">
-      {/* Top Row: User Identity (Always visible) & Quick Actions */}
+    <div className="w-full max-w-4xl mb-4 bg-white/95 backdrop-blur-md rounded-2xl p-2.5 sm:p-3.5 shadow-md shadow-pink-100/60 border border-pink-200/80 flex flex-col gap-2.5 transition-all">
+      {/* Top Row: User Identity (Always visible) & ID & Direct Connect Input */}
       <div className="flex flex-wrap items-center justify-between gap-2.5">
         {/* Left: User Identity + ID */}
         <div className="flex items-center gap-2">
-          {/* Status Indicator Avatar */}
+          {/* Avatar with pulse */}
           <div className="relative">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#FF4D94] to-[#FF80B5] text-white flex items-center justify-center font-bold text-xs shadow-xs">
               {myUsername.charAt(0).toUpperCase() || 'B'}
@@ -77,11 +107,11 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
               className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${
                 friendScreen ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-400'
               }`}
-              title="Broadcasting live study presence"
+              title="Study Screen Active & Broadcasting"
             />
           </div>
 
-          {/* Username (editable) & ID Tag */}
+          {/* Username (editable) & ID Badge */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
             {isEditingUsername ? (
               <div className="flex items-center gap-1">
@@ -124,13 +154,15 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
             <button
               type="button"
               onClick={handleCopyId}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-pink-50 hover:bg-pink-100/90 text-pink-700 border border-pink-200/80 font-mono font-bold text-[11px] sm:text-xs transition-all cursor-pointer group shadow-2xs"
-              title="Click to copy your unique ID for friend to watch your screen"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-pink-50 hover:bg-pink-100/90 text-pink-700 border border-pink-200/80 font-mono font-bold text-[11px] sm:text-xs transition-all cursor-pointer group shadow-2xs"
+              title="Click to copy your ID so your friend can view your study screen"
             >
               <Radio className="w-3 h-3 text-[#FF4D94] animate-pulse" />
               <span>ID: {myPeerId}</span>
               {copied ? (
-                <Check className="w-3 h-3 text-emerald-600" />
+                <span className="text-emerald-600 flex items-center gap-0.5 font-sans font-bold text-[10px]">
+                  <Check className="w-3 h-3" /> Copied!
+                </span>
               ) : (
                 <Copy className="w-3 h-3 text-pink-400 group-hover:text-pink-700 transition-colors" />
               )}
@@ -138,17 +170,53 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
           </div>
         </div>
 
-        {/* Right: Screen Share Status or Connect Button */}
-        <div className="flex items-center gap-1.5 ml-auto">
-          {friendScreen ? (
+        {/* Right: Inline Quick-Connect to Friend ID OR Switch Screen Controls */}
+        <div className="flex items-center gap-2 ml-auto">
+          {!friendScreen ? (
             <div className="flex items-center gap-1.5">
-              {/* Switching Button */}
+              <form onSubmit={handleQuickConnect} className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={quickFriendInput}
+                  onChange={(e) => setQuickFriendInput(e.target.value.toUpperCase())}
+                  placeholder="Enter Friend's ID..."
+                  className="px-2.5 py-1 text-xs font-mono font-bold uppercase bg-slate-50 border border-slate-200 focus:border-teal-500 rounded-lg outline-none w-36 sm:w-44 transition-all"
+                />
+                <button
+                  type="submit"
+                  disabled={!quickFriendInput.trim() || isConnecting}
+                  className="flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs disabled:opacity-40 cursor-pointer active:scale-95 shrink-0"
+                  title="Connect and load your friend's study screen"
+                >
+                  {isConnecting ? (
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <>
+                      <span>Connect</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </>
+                  )}
+                </button>
+              </form>
+
+              <button
+                type="button"
+                onClick={onOpenScreenShareModal}
+                className="p-1.5 text-slate-400 hover:text-teal-700 rounded-lg hover:bg-teal-50 transition-colors cursor-pointer"
+                title="Browse active study peers"
+              >
+                <Cast className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              {/* Prominent Screen Switching Button */}
               <button
                 type="button"
                 onClick={onSwitchScreen}
                 disabled={isPeerSyncing}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white text-xs font-extrabold shadow-sm shadow-teal-200 transition-all cursor-pointer active:scale-95"
-                title="Switch between your screen and friend's screen"
+                title="Switch between viewing friend's screen and broadcasting your screen"
               >
                 <ArrowRightLeft className={`w-3.5 h-3.5 ${isPeerSyncing ? 'animate-spin' : ''}`} />
                 <span>
@@ -178,19 +246,15 @@ export const LiveScreenBar: React.FC<LiveScreenBarProps> = ({
                 <span className="hidden sm:inline">Exit</span>
               </button>
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={onOpenScreenShareModal}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#20B2AA] to-[#0D9488] hover:from-[#199d96] hover:to-[#0b7c72] text-white text-xs font-bold shadow-xs hover:shadow-md shadow-teal-200 transition-all cursor-pointer group"
-            >
-              <Cast className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-              <span>Connect Friend's Screen</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-ping" />
-            </button>
           )}
         </div>
       </div>
+
+      {connectError && (
+        <div className="text-xs text-rose-600 bg-rose-50 px-3 py-1 rounded-lg border border-rose-200">
+          {connectError}
+        </div>
+      )}
 
       {/* Connected Co-Study Status Banner (when paired with a friend) */}
       {friendScreen && (

@@ -392,7 +392,7 @@ export default function App() {
         const currentMarkdown = latestLesson?.text || '';
         const title = currentMarkdown ? deriveTitle(currentMarkdown) : (decodedVideo?.title || 'Live Study Session');
 
-        await fetch('/api/peer/sync', {
+        const syncRes = await fetch('/api/peer/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -410,6 +410,24 @@ export default function App() {
               : myPeerId,
           }),
         });
+        const syncData = await syncRes.json();
+        // If another peer entered our ID and paired with us:
+        if (
+          syncData.success &&
+          syncData.pairedPeerId &&
+          (!friendScreen || friendScreen.peerId !== syncData.pairedPeerId)
+        ) {
+          const friendRes = await fetch(`/api/peer/${encodeURIComponent(syncData.pairedPeerId)}`);
+          const friendData = await friendRes.json();
+          if (friendData.success && friendData.screen) {
+            setFriendScreen(friendData.screen);
+            setLoadedBanner(`🎉 ${friendData.screen.username} connected to your live study screen!`);
+            setTimeout(() => setLoadedBanner(null), 5000);
+            try {
+              confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
+            } catch {}
+          }
+        }
       } catch {}
     };
 
@@ -680,9 +698,9 @@ export default function App() {
     }
   };
 
-  const handleSendFollowUp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const query = followUp.trim();
+  const handleSendFollowUp = async (e?: React.FormEvent, directQuery?: string) => {
+    if (e) e.preventDefault();
+    const query = (directQuery || followUp).trim();
     if (!query || isFollowUpLoading) return;
 
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -882,6 +900,7 @@ export default function App() {
           activePresenterId={friendScreen?.activePresenterId}
           isPeerSyncing={isPeerSyncing}
           onOpenScreenShareModal={() => setScreenShareModalOpen(true)}
+          onConnectFriendId={handleConnectFriendScreen}
           onSwitchScreen={() => handleSwitchScreen()}
           onDisconnect={handleDisconnectFriend}
           onRefresh={handleRefreshFriendScreen}
@@ -1541,42 +1560,55 @@ export default function App() {
             </button>
           </form>
         </div>
+      </>
+    )}
 
-        {/* 6. MODALS: Export (PDF/JPG/Handwritten), Share (Unique ID), Friend Code Sync */}
-        {activeExportLesson && (
-          <ExportModal
-            isOpen={exportModalOpen}
-            onClose={() => {
-              setExportModalOpen(false);
-              setActiveExportLesson(null);
-            }}
-            markdown={activeExportLesson.markdown}
-            title={activeExportLesson.title}
-            notes={activeExportLesson.notes}
-          />
-        )}
+    {/* 6. MODALS: Export (Multi-Page PDF/JPG/ZIP), Share (Unique ID), Friend Code Sync, Live Screen Share */}
+    {activeExportLesson && (
+      <ExportModal
+        isOpen={exportModalOpen}
+        onClose={() => {
+          setExportModalOpen(false);
+          setActiveExportLesson(null);
+        }}
+        markdown={activeExportLesson.markdown}
+        title={activeExportLesson.title}
+        notes={activeExportLesson.notes}
+      />
+    )}
 
-        {activeShareLesson && (
-          <ShareModal
-            isOpen={shareModalOpen}
-            onClose={() => {
-              setShareModalOpen(false);
-              setActiveShareLesson(null);
-            }}
-            markdown={activeShareLesson.markdown}
-            title={activeShareLesson.title}
-            mode={activeShareLesson.mode}
-            notes={activeShareLesson.notes}
-          />
-        )}
+    {activeShareLesson && (
+      <ShareModal
+        isOpen={shareModalOpen}
+        onClose={() => {
+          setShareModalOpen(false);
+          setActiveShareLesson(null);
+        }}
+        markdown={activeShareLesson.markdown}
+        title={activeShareLesson.title}
+        mode={activeShareLesson.mode}
+        notes={activeShareLesson.notes}
+      />
+    )}
 
-        <FriendCodeModal
-          isOpen={friendCodeModalOpen}
-          onClose={() => setFriendCodeModalOpen(false)}
-          onLoadLesson={handleLoadSharedLesson}
-        />
-      </div>
-    </div>
-  );
+    <FriendCodeModal
+      isOpen={friendCodeModalOpen}
+      onClose={() => setFriendCodeModalOpen(false)}
+      onLoadLesson={handleLoadSharedLesson}
+    />
+
+    <ScreenShareModal
+      isOpen={screenShareModalOpen}
+      onClose={() => setScreenShareModalOpen(false)}
+      myPeerId={myPeerId}
+      myUsername={myUsername}
+      onConnectPeer={handleConnectFriendScreen}
+      activeFriendScreen={friendScreen}
+      onSwitchScreen={() => handleSwitchScreen()}
+      onDisconnect={handleDisconnectFriend}
+    />
+  </div>
+</div>
+);
 }
 

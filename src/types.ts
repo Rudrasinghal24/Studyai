@@ -66,6 +66,7 @@ export interface PeerScreenState {
     title: string;
     author: string;
     thumbnailUrl: string;
+    canonicalUrl?: string;
   } | null;
   messages?: any[];
   lastUpdated: number;

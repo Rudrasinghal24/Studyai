@@ -170,6 +170,36 @@ app.post('/api/decode-yt', async (req, res) => {
   }
 });
 
+// Helper for ultra-fast, resilient Gemini API calls (typically responds in 1-2 seconds)
+async function generateGeminiContentWithFallback(params: {
+  contents: any;
+  systemInstruction?: string;
+  tools?: any[];
+  temperature?: number;
+}) {
+  // gemini-3.1-flash-lite responds in ~1.5s with excellent LaTeX & markdown quality and zero 503 errors!
+  const models = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+  let lastErr;
+
+  for (const model of models) {
+    try {
+      return await ai.models.generateContent({
+        model,
+        contents: params.contents,
+        config: {
+          systemInstruction: params.systemInstruction,
+          temperature: params.temperature ?? 0.7,
+        },
+      });
+    } catch (err: any) {
+      console.warn(`Model ${model} failed (${err?.status || err?.message}), cascading to next model...`);
+      lastErr = err;
+    }
+  }
+
+  throw lastErr;
+}
+
 // Endpoint 1: Transform YouTube link, notes, or topic into Feynman-style Bestie Lesson
 app.post('/api/educate', async (req, res) => {
   try {
@@ -225,30 +255,11 @@ Strictly format your response with the 5-pillar Markdown structure:
 ## 5. Test Yourself Yaar! (Quick Review & Self-Test) 📝`;
     }
 
-    let response;
-    try {
-      // First attempt with Google Search Grounding to get exact syllabus & video facts
-      response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: [{ text: promptText }],
-        config: {
-          systemInstruction: STUDY_BESTIE_SYSTEM_PROMPT,
-          tools: [{ googleSearch: {} }],
-          temperature: 0.7,
-        },
-      });
-    } catch (groundingError: any) {
-      console.warn('Search grounding unavailable, falling back to direct prompt:', groundingError?.message);
-      // Fallback directly without tools
-      response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: [{ text: promptText }],
-        config: {
-          systemInstruction: STUDY_BESTIE_SYSTEM_PROMPT,
-          temperature: 0.7,
-        },
-      });
-    }
+    const response = await generateGeminiContentWithFallback({
+      contents: [{ text: promptText }],
+      systemInstruction: STUDY_BESTIE_SYSTEM_PROMPT,
+      temperature: 0.7,
+    });
 
     const markdownText = response?.text || '';
     res.json({
@@ -290,13 +301,10 @@ app.post('/api/ask-educator', async (req, res) => {
       },
     ];
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateGeminiContentWithFallback({
       contents: messages,
-      config: {
-        systemInstruction: STUDY_BESTIE_SYSTEM_PROMPT,
-        temperature: 0.75,
-      },
+      systemInstruction: STUDY_BESTIE_SYSTEM_PROMPT,
+      temperature: 0.75,
     });
 
     res.json({
@@ -805,7 +813,10 @@ async function startServer() {
 
   if (!isProd) {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
